@@ -501,7 +501,11 @@ func TestCampaigns(t *testing.T) {
 				... on Org  { ...o }
 			}
 			changesets {
-				nodes { ...cs }
+				nodes {
+				  ... on ExternalChangeset {
+				    ...cs
+				  }
+				}
 				totalCount
 				pageInfo { hasNextPage }
 			}
@@ -1420,16 +1424,18 @@ func TestCreateCampaignWithPatchSet(t *testing.T) {
 	      }
 	      changesets {
 	        nodes {
-	          state
-	          diff {
-	            fileDiffs {
-	              diffStat {
-	                added
-	                deleted
-	                changed
+			  ... on ExternalChangeset {
+	            state
+	            diff {
+	              fileDiffs {
+	                diffStat {
+	                  added
+	                  deleted
+	                  changed
+	                }
 	              }
 	            }
-	          }
+			  }
 	        }
 	        totalCount
 	      }
