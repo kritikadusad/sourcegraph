@@ -20,3 +20,20 @@ func (db *dbImpl) RepoName(ctx context.Context, repositoryID int) (string, error
 	}
 	return name, nil
 }
+
+// RepoIDs returns the identifiers for the repos with the given names.
+func (db *dbImpl) RepoIDs(ctx context.Context, names []string) (map[string]int, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+
+	var qs []*sqlf.Query
+	for _, name := range names {
+		qs = append(qs, sqlf.Sprintf("%s", name))
+	}
+
+	return scanRepoIDs(db.query(
+		ctx,
+		sqlf.Sprintf(`SELECT name, id FROM repo WHERE name IN (%s)`, sqlf.Join(qs, ",")),
+	))
+}

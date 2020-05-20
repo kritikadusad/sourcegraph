@@ -322,3 +322,154 @@ func scanCommits(rows *sql.Rows, err error) (map[string][]string, error) {
 
 	return commits, nil
 }
+
+// scanIndexableRepository populates an IndexableRepository value from the given scanner.
+func scanIndexableRepository(scanner scanner) (indexableRepository IndexableRepository, err error) {
+	err = scanner.Scan(
+		&indexableRepository.RepositoryID,
+		&indexableRepository.SearchCount,
+		&indexableRepository.PreciseCount,
+		&indexableRepository.LastIndexEnqueuedAt,
+	)
+	return indexableRepository, err
+}
+
+// scanIndexableRepositories reads the given set of indexable repository rows and returns
+// a slice of resulting values. This method should be called directly with the return value
+// of `*db.query`.
+func scanIndexableRepositories(rows *sql.Rows, err error) ([]IndexableRepository, error) {
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var indexableRepositories []IndexableRepository
+	for rows.Next() {
+		indexableRepository, err := scanIndexableRepository(rows)
+		if err != nil {
+			return nil, err
+		}
+
+		indexableRepositories = append(indexableRepositories, indexableRepository)
+	}
+
+	return indexableRepositories, nil
+}
+
+// scanIndex populates an Index value from the given scanner.
+func scanIndex(scanner scanner) (index Index, err error) {
+	err = scanner.Scan(
+		&index.ID,
+		&index.Commit,
+		&index.QueuedAt,
+		&index.State,
+		&index.FailureSummary,
+		&index.FailureStacktrace,
+		&index.StartedAt,
+		&index.FinishedAt,
+		&index.RepositoryID,
+		&index.Rank,
+	)
+	return index, err
+}
+
+// scanIndexes reads the given set of index rows and returns a slice of resulting
+// values. This method should be called directly with the return value of `*db.query`.
+func scanIndexes(rows *sql.Rows, err error) ([]Index, error) {
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var indexes []Index
+	for rows.Next() {
+		index, err := scanIndex(rows)
+		if err != nil {
+			return nil, err
+		}
+
+		indexes = append(indexes, index)
+	}
+
+	return indexes, nil
+}
+
+// scanFirstIndex reads the given set of index rows and returns the first value and
+// a boolean flag indicating its presence. This method should be called directly with
+// the return value of `*db.query`.
+func scanFirstIndex(rows *sql.Rows, err error) (Index, bool, error) {
+	indexes, err := scanIndexes(rows, err)
+	if err != nil || len(indexes) == 0 {
+		return Index{}, false, err
+	}
+	return indexes[0], true, nil
+}
+
+// scanFirstIndexDequeue is scanFirstIndex with an interface return value.
+func scanFirstIndexDequeue(rows *sql.Rows, err error) (interface{}, bool, error) {
+	return scanFirstIndex(rows, err)
+}
+
+// scanNameCount populates a repository name and a pair of counts from the given scanner.
+func scanNameCount(scanner scanner) (name string, searchCount, preciseCount int, err error) {
+	err = scanner.Scan(&name, &searchCount, &preciseCount)
+	return name, searchCount, preciseCount, err
+}
+
+type Counts struct {
+	SearchCount  int
+	PreciseCount int
+}
+
+// scanCountsByName reads the given set of `(name, search_count, precise_count)` rows
+// and returns  a map from names to counts. This method should be called directly from
+// the return value of `*db.query`.
+func scanCountsByName(rows *sql.Rows, err error) (map[string]Counts, error) {
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	counts := map[string]Counts{}
+	for rows.Next() {
+		name, searchCount, preciseCount, err := scanNameCount(rows)
+		if err != nil {
+			return nil, err
+		}
+
+		counts[name] = Counts{
+			SearchCount:  searchCount,
+			PreciseCount: preciseCount,
+		}
+	}
+
+	return counts, nil
+}
+
+// scanRepoID populates a repository name and its id from the given scanner.
+func scanRepoID(scanner scanner) (name string, id int, err error) {
+	err = scanner.Scan(&name, &id)
+	return name, id, err
+}
+
+// scanRepoIDs reads the given set of `(name, id)` rows and returns a map from
+// names to identifiers. This method should be called directly from the return value of
+// `*db.query`.
+func scanRepoIDs(rows *sql.Rows, err error) (map[string]int, error) {
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	repoIDs := map[string]int{}
+	for rows.Next() {
+		name, id, err := scanRepoID(rows)
+		if err != nil {
+			return nil, err
+		}
+
+		repoIDs[name] = id
+	}
+
+	return repoIDs, nil
+}
