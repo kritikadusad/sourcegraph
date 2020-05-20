@@ -11,12 +11,11 @@ import {
     IEmptyResponse,
     IExternalChangeset,
     IFileDiffConnection,
-    IPreviewFileDiffConnection,
     IPatchSet,
     IPatchesOnCampaignArguments,
     IPatchConnection,
 } from '../../../../../shared/src/graphql/schema'
-import { DiffStatFields, PreviewFileDiffFields, FileDiffFields } from '../../../backend/diff'
+import { DiffStatFields, FileDiffFields } from '../../../backend/diff'
 import { Connection, FilteredConnectionQueryArgs } from '../../../components/FilteredConnection'
 
 const campaignFragment = gql`
@@ -441,22 +440,28 @@ export async function syncChangeset(changeset: ID): Promise<void> {
 
 export const queryExternalChangesetFileDiffs = (
     externalChangeset: ID,
-    { first }: FilteredConnectionQueryArgs
+    { first, after, isLightTheme }: FilteredConnectionQueryArgs & { isLightTheme: boolean }
 ): Observable<IFileDiffConnection> =>
     queryGraphQL(
         gql`
-            query ExternalChangesetFileDiffs($externalChangeset: ID!, $first: Int) {
+            query ExternalChangesetFileDiffs(
+                $externalChangeset: ID!
+                $first: Int
+                $after: String
+                $isLightTheme: Boolean!
+            ) {
                 node(id: $externalChangeset) {
                     __typename
                     ... on ExternalChangeset {
                         diff {
-                            fileDiffs(first: $first) {
+                            fileDiffs(first: $first, after: $after) {
                                 nodes {
                                     ...FileDiffFields
                                 }
                                 totalCount
                                 pageInfo {
                                     hasNextPage
+                                    endCursor
                                 }
                                 diffStat {
                                     ...DiffStatFields
@@ -471,7 +476,7 @@ export const queryExternalChangesetFileDiffs = (
 
             ${DiffStatFields}
         `,
-        { externalChangeset, first }
+        { externalChangeset, first, after, isLightTheme }
     ).pipe(
         map(dataOrThrowErrors),
         map(({ node }) => {
@@ -490,22 +495,23 @@ export const queryExternalChangesetFileDiffs = (
 
 export const queryPatchFileDiffs = (
     patch: ID,
-    { first }: FilteredConnectionQueryArgs
-): Observable<IPreviewFileDiffConnection> =>
+    { first, after, isLightTheme }: FilteredConnectionQueryArgs & { isLightTheme: boolean }
+): Observable<IFileDiffConnection> =>
     queryGraphQL(
         gql`
-            query PatchFileDiffs($patch: ID!, $first: Int) {
+            query PatchFileDiffs($patch: ID!, $first: Int, $after: String, $isLightTheme: Boolean!) {
                 node(id: $patch) {
                     __typename
                     ... on Patch {
                         diff {
-                            fileDiffs(first: $first) {
+                            fileDiffs(first: $first, after: $after) {
                                 nodes {
-                                    ...PreviewFileDiffFields
+                                    ...FileDiffFields
                                 }
                                 totalCount
                                 pageInfo {
                                     hasNextPage
+                                    endCursor
                                 }
                                 diffStat {
                                     ...DiffStatFields
@@ -516,11 +522,11 @@ export const queryPatchFileDiffs = (
                 }
             }
 
-            ${PreviewFileDiffFields}
+            ${FileDiffFields}
 
             ${DiffStatFields}
         `,
-        { patch, first }
+        { patch, first, after, isLightTheme }
     ).pipe(
         map(dataOrThrowErrors),
         map(({ node }) => {

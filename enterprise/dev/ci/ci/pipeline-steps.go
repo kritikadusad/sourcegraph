@@ -19,9 +19,9 @@ var allDockerImages = []string{
 	"searcher",
 	"server",
 	"symbols",
-	"precise-code-intel/api-server",
-	"precise-code-intel/bundle-manager",
-	"precise-code-intel/worker",
+	"precise-code-intel-api-server",
+	"precise-code-intel-bundle-manager",
+	"precise-code-intel-worker",
 
 	// Images under docker-images/
 	"grafana",
@@ -100,13 +100,6 @@ func addBrowserExt(pipeline *bk.Pipeline) {
 		bk.Cmd("bash <(curl -s https://codecov.io/bash) -c -F typescript -F unit"))
 }
 
-// Tests the precise code intel system.
-func addPreciseCodeIntelSystem(pipeline *bk.Pipeline) {
-	pipeline.AddStep(":jest:",
-		bk.Cmd("dev/ci/yarn-test-separate.sh cmd/precise-code-intel"),
-		bk.Cmd("bash <(curl -s https://codecov.io/bash) -c -F unit"))
-}
-
 // Adds the shared frontend tests (shared between the web app and browser extension).
 func addSharedTests(pipeline *bk.Pipeline) {
 	// Shared tests
@@ -114,8 +107,18 @@ func addSharedTests(pipeline *bk.Pipeline) {
 		bk.Cmd("dev/ci/yarn-test.sh shared"),
 		bk.Cmd("bash <(curl -s https://codecov.io/bash) -c -F typescript -F unit"))
 
-	// Storybook
-	pipeline.AddStep(":storybook:", bk.Cmd("dev/ci/yarn-run.sh storybook:smoke-test"))
+	// Storybook coverage
+	pipeline.AddStep(":storybook::codecov:",
+		bk.Env("PUPPETEER_SKIP_CHROMIUM_DOWNLOAD", ""),
+		bk.Cmd("COVERAGE_INSTRUMENT=true dev/ci/yarn-run.sh build-storybook"),
+		bk.Cmd("yarn run cover-storybook"),
+		bk.Cmd("yarn nyc report -r json"),
+		bk.Cmd("bash <(curl -s https://codecov.io/bash) -c -F typescript -F storybook"))
+
+	// Upload storybook to Percy
+	pipeline.AddStep(":storybook::percy:",
+		bk.Env("PUPPETEER_SKIP_CHROMIUM_DOWNLOAD", ""),
+		bk.Cmd("dev/ci/yarn-run.sh build-storybook percy-storybook"))
 }
 
 // Adds PostgreSQL backcompat tests.

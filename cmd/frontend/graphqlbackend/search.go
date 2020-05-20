@@ -634,7 +634,7 @@ func resolveRepositories(ctx context.Context, op resolveRepoOp) (repoRevisions, 
 		getIndexedRepos := func(ctx context.Context, revs []*search.RepositoryRevisions) (indexed, unindexed []*search.RepositoryRevisions, err error) {
 			return zoektIndexedRepos(ctx, search.Indexed(), revs, nil)
 		}
-		defaultRepos, err = defaultRepositories(ctx, db.DefaultRepos.List, getIndexedRepos)
+		defaultRepos, err = defaultRepositories(ctx, db.DefaultRepos.List, getIndexedRepos, excludePatterns)
 		if err != nil {
 			return nil, nil, false, errors.Wrap(err, "getting list of default repos")
 		}
@@ -677,10 +677,10 @@ func resolveRepositories(ctx context.Context, op resolveRepoOp) (repoRevisions, 
 		var revs []search.RevisionSpecifier
 		// versionContext will be nil if the query contains revision specifiers
 		if versionContext != nil {
-			for _, vcRepoRef := range versionContext.Revisions {
-				if vcRepoRef.Repo == string(repo.Name) {
+			for _, vcRepoRev := range versionContext.Revisions {
+				if vcRepoRev.Repo == string(repo.Name) {
 					repoRev.Repo = repo
-					revs = append(revs, search.RevisionSpecifier{RevSpec: vcRepoRef.Ref})
+					revs = append(revs, search.RevisionSpecifier{RevSpec: vcRepoRev.Rev})
 					break
 				}
 			}
@@ -754,12 +754,25 @@ func resolveRepositories(ctx context.Context, op resolveRepoOp) (repoRevisions, 
 type indexedReposFunc func(ctx context.Context, revs []*search.RepositoryRevisions) (indexed, unindexed []*search.RepositoryRevisions, err error)
 type defaultReposFunc func(ctx context.Context) ([]*types.Repo, error)
 
-func defaultRepositories(ctx context.Context, getRawDefaultRepos defaultReposFunc, getIndexedRepos indexedReposFunc) ([]*types.Repo, error) {
+func defaultRepositories(ctx context.Context, getRawDefaultRepos defaultReposFunc, getIndexedRepos indexedReposFunc, excludePatterns []string) ([]*types.Repo, error) {
 	// Get the list of default repos from the db.
 	defaultRepos, err := getRawDefaultRepos(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "querying db for default repos")
 	}
+
+	// Remove excluded repos
+	if len(excludePatterns) > 0 {
+		patterns, _ := regexp.Compile(`(?i)` + unionRegExps(excludePatterns))
+		filteredRepos := defaultRepos[:0]
+		for _, repo := range defaultRepos {
+			if matched := patterns.MatchString(string(repo.Name)); false == matched {
+				filteredRepos = append(filteredRepos, repo)
+			}
+		}
+		defaultRepos = filteredRepos
+	}
+
 	// Find out which of the default repos have been indexed.
 	defaultRepoRevs := make([]*search.RepositoryRevisions, 0, len(defaultRepos))
 	for _, r := range defaultRepos {

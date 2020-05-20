@@ -214,7 +214,7 @@ func (r *campaignResolver) ChangesetCountsOverTime(
 
 	resolvers := []graphqlbackend.ChangesetCountsResolver{}
 
-	opts := ee.ListChangesetsOpts{CampaignID: r.Campaign.ID}
+	opts := ee.ListChangesetsOpts{CampaignID: r.Campaign.ID, Limit: -1}
 	cs, _, err := r.store.ListChangesets(ctx, opts)
 	if err != nil {
 		return resolvers, err
@@ -305,7 +305,7 @@ func (r *campaignResolver) DiffStat(ctx context.Context) (*graphqlbackend.DiffSt
 	totalStat := &graphqlbackend.DiffStat{}
 
 	for _, repoComp := range repoComparisons {
-		fileDiffs := repoComp.FileDiffs(&graphqlutil.ConnectionArgs{})
+		fileDiffs := repoComp.FileDiffs(&graphqlbackend.FileDiffsConnectionArgs{})
 		s, err := fileDiffs.DiffStat(ctx)
 		if err != nil {
 			return nil, err

@@ -66,7 +66,7 @@ func scanFirstDump(rows *sql.Rows, err error) (Dump, bool, error) {
 
 // scanUpload populates an Upload value from the given scanner.
 func scanUpload(scanner scanner) (upload Upload, err error) {
-	var uploadedParts []sql.NullInt32
+	var rawUploadedParts []sql.NullInt32
 	err = scanner.Scan(
 		&upload.ID,
 		&upload.Commit,
@@ -81,12 +81,16 @@ func scanUpload(scanner scanner) (upload Upload, err error) {
 		&upload.RepositoryID,
 		&upload.Indexer,
 		&upload.NumParts,
-		pq.Array(&uploadedParts),
+		pq.Array(&rawUploadedParts),
 		&upload.Rank,
 	)
-	for _, uploadedPart := range uploadedParts {
-		upload.UploadedParts = append(upload.UploadedParts, int(uploadedPart.Int32))
+
+	var uploadedParts = []int{}
+	for _, uploadedPart := range rawUploadedParts {
+		uploadedParts = append(uploadedParts, int(uploadedPart.Int32))
 	}
+	upload.UploadedParts = uploadedParts
+
 	return upload, err
 }
 
@@ -120,6 +124,11 @@ func scanFirstUpload(rows *sql.Rows, err error) (Upload, bool, error) {
 		return Upload{}, false, err
 	}
 	return uploads[0], true, nil
+}
+
+// scanFirstUploadDequeue is scanFirstUpload with an interface return value.
+func scanFirstUploadDequeue(rows *sql.Rows, err error) (interface{}, bool, error) {
+	return scanFirstUpload(rows, err)
 }
 
 // scanPackageReference populates a package reference value from the given scanner.
@@ -278,4 +287,38 @@ func scanVisibilities(rows *sql.Rows, err error) (map[int]bool, error) {
 	}
 
 	return visibilities, nil
+}
+
+// scanCommit populates a pair of strings from the given scanner.
+func scanCommit(scanner scanner) (commit string, parentCommit *string, err error) {
+	err = scanner.Scan(&commit, &parentCommit)
+	return commit, parentCommit, err
+}
+
+// scanCommits reads the given set of `(commit, parent_commit)` rows and returns
+// a map from commits to its parents. This method should be called directly from
+// the return value of `*db.query`.
+func scanCommits(rows *sql.Rows, err error) (map[string][]string, error) {
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	commits := map[string][]string{}
+	for rows.Next() {
+		commit, parentCommit, err := scanCommit(rows)
+		if err != nil {
+			return nil, err
+		}
+
+		if _, ok := commits[commit]; !ok {
+			commits[commit] = nil
+		}
+
+		if parentCommit != nil {
+			commits[commit] = append(commits[commit], *parentCommit)
+		}
+	}
+
+	return commits, nil
 }

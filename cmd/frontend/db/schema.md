@@ -127,6 +127,8 @@ Foreign-key constraints:
  external_state        | text                     | 
  external_review_state | text                     | 
  external_check_state  | text                     | 
+ created_by_campaign   | boolean                  | not null default false
+ added_to_campaign     | boolean                  | not null default false
 Indexes:
     "changesets_pkey" PRIMARY KEY, btree (id)
     "changesets_repo_external_id_unique" UNIQUE CONSTRAINT, btree (repo_id, external_id)
@@ -280,6 +282,7 @@ Referenced by:
  timestamp         | timestamp with time zone | not null
 Indexes:
     "event_logs_pkey" PRIMARY KEY, btree (id)
+    "event_logs_anonymous_user_id" btree (anonymous_user_id)
     "event_logs_name" btree (name)
     "event_logs_source" btree (source)
     "event_logs_timestamp" btree ("timestamp")
@@ -535,20 +538,22 @@ Referenced by:
 
 # Table "public.patches"
 ```
-    Column    |           Type           |                         Modifiers                          
---------------+--------------------------+------------------------------------------------------------
- id           | bigint                   | not null default nextval('campaign_jobs_id_seq'::regclass)
- patch_set_id | bigint                   | not null
- repo_id      | bigint                   | not null
- rev          | text                     | not null
- diff         | text                     | not null
- created_at   | timestamp with time zone | not null default now()
- updated_at   | timestamp with time zone | not null default now()
- base_ref     | text                     | not null
+      Column       |           Type           |                         Modifiers                          
+-------------------+--------------------------+------------------------------------------------------------
+ id                | bigint                   | not null default nextval('campaign_jobs_id_seq'::regclass)
+ patch_set_id      | bigint                   | not null
+ repo_id           | bigint                   | not null
+ rev               | text                     | not null
+ diff              | text                     | not null
+ created_at        | timestamp with time zone | not null default now()
+ updated_at        | timestamp with time zone | not null default now()
+ base_ref          | text                     | not null
+ diff_stat_added   | integer                  | 
+ diff_stat_changed | integer                  | 
+ diff_stat_deleted | integer                  | 
 Indexes:
     "campaign_jobs_pkey" PRIMARY KEY, btree (id)
     "campaign_jobs_campaign_plan_repo_rev_unique" UNIQUE CONSTRAINT, btree (patch_set_id, repo_id, rev) DEFERRABLE
-    "campaign_jobs_campaign_plan_id" btree (patch_set_id)
 Check constraints:
     "campaign_jobs_base_ref_check" CHECK (base_ref <> ''::text)
 Foreign-key constraints:
@@ -879,6 +884,7 @@ Foreign-key constraints:
 Indexes:
     "user_external_accounts_pkey" PRIMARY KEY, btree (id)
     "user_external_accounts_account" UNIQUE, btree (service_type, service_id, client_id, account_id) WHERE deleted_at IS NULL
+    "user_external_accounts_user_id" btree (user_id) WHERE deleted_at IS NULL
 Foreign-key constraints:
     "user_external_accounts_user_id_fkey" FOREIGN KEY (user_id) REFERENCES users(id)
 

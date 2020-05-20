@@ -9,6 +9,8 @@ import (
 	"github.com/inconshreveable/log15"
 	"github.com/opentracing/opentracing-go"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sourcegraph/sourcegraph/cmd/precise-code-intel-worker/internal/resetter"
+	"github.com/sourcegraph/sourcegraph/cmd/precise-code-intel-worker/internal/server"
 	"github.com/sourcegraph/sourcegraph/cmd/precise-code-intel-worker/internal/worker"
 	bundles "github.com/sourcegraph/sourcegraph/internal/codeintel/bundles/client"
 	"github.com/sourcegraph/sourcegraph/internal/codeintel/db"
@@ -30,8 +32,9 @@ func main() {
 	sqliteutil.MustRegisterSqlite3WithPcre()
 
 	var (
-		pollInterval     = mustParseInterval(rawPollInterval, "PRECISE_CODE_INTEL_POLL_INTERVAL")
-		bundleManagerURL = mustGet(rawBundleManagerURL, "PRECISE_CODE_INTEL_BUNDLE_MANAGER_URL")
+		bundleManagerURL   = mustGet(rawBundleManagerURL, "PRECISE_CODE_INTEL_BUNDLE_MANAGER_URL")
+		workerPollInterval = mustParseInterval(rawWorkerPollInterval, "PRECISE_CODE_INTEL_WORKER_POLL_INTERVAL")
+		resetInterval      = mustParseInterval(rawResetInterval, "PRECISE_CODE_INTEL_RESET_INTERVAL")
 	)
 
 	observationContext := &observation.Context{
@@ -40,21 +43,44 @@ func main() {
 		Registerer: prometheus.DefaultRegisterer,
 	}
 
-	db := db.NewObserved(mustInitializeDatabase(), observationContext, "precise_code_intel_worker")
+	db := db.NewObserved(mustInitializeDatabase(), observationContext)
 	MustRegisterQueueMonitor(observationContext.Registerer, db)
 	workerMetrics := worker.NewWorkerMetrics(prometheus.DefaultRegisterer)
+	resetterMetrics := resetter.NewResetterMetrics(prometheus.DefaultRegisterer)
+	server := server.New()
 
-	worker := worker.Worker{
-		DB:                  db,
-		BundleManagerClient: bundles.New(bundleManagerURL),
-		GitserverClient:     gitserver.DefaultClient,
-		PollInterval:        pollInterval,
-		Metrics:             workerMetrics,
+	uploadResetter := resetter.UploadResetter{
+		DB:            db,
+		ResetInterval: resetInterval,
+		Metrics:       resetterMetrics,
 	}
-	go worker.Start()
 
+	worker := worker.NewWorker(
+		db,
+		bundles.New(bundleManagerURL),
+		gitserver.DefaultClient,
+		workerPollInterval,
+		workerMetrics,
+	)
+
+	go server.Start()
+	go uploadResetter.Run()
+	go worker.Start()
 	go debugserver.Start()
-	waitForSignal()
+
+	// Attempt to clean up after first shutdown signal
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGHUP)
+	<-signals
+
+	go func() {
+		// Insta-shutdown on a second signal
+		<-signals
+		os.Exit(0)
+	}()
+
+	server.Stop()
+	worker.Stop()
 }
 
 func mustInitializeDatabase() db.DB {
@@ -71,15 +97,4 @@ func mustInitializeDatabase() db.DB {
 	}
 
 	return db
-}
-
-func waitForSignal() {
-	signals := make(chan os.Signal, 2)
-	signal.Notify(signals, syscall.SIGINT, syscall.SIGHUP)
-
-	for i := 0; i < 2; i++ {
-		<-signals
-	}
-
-	os.Exit(0)
 }

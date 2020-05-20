@@ -109,7 +109,7 @@ import { delayUntilIntersecting, ViewResolver } from './views'
 
 import { IS_LIGHT_THEME } from './consts'
 import { NotificationType } from 'sourcegraph'
-import { failedWithHTTPStatus } from '../../../../shared/src/backend/fetch'
+import { isHTTPAuthError } from '../../../../shared/src/backend/fetch'
 import { asError } from '../../../../shared/src/util/errors'
 
 registerHighlightContributions()
@@ -507,14 +507,10 @@ function initCodeIntelligence({
  * Related issue: https://gitlab.com/gitlab-org/gitlab/issues/193433
  *
  * Example use case on GitLab:
- * 1. User visits https://gitlab.com/gitlab-org/gitaly/-/merge_requests/1575. div.tab-pane.diffs doesn't exist yet (it'll be lazy-loaded)
- *      -> Mount the  hover overlay is to document.body.
- * 2. User visits the 'Changes' tab
- *      -> Unmount from document.body, mount to div.tab-pane.diffs
- * 3. User visits the 'Overview' tab again
- *      -> div.tab-pane.diffs is hidden, and as a result so is the hover overlay.
- * 4. User navigates away from the merge request (soft-reload), div.tab-pane.diffs is removed
- *      -> Mount to document.body again
+ * 1. User visits https://gitlab.com/gitlab-org/gitaly/-/merge_requests/1575. `div.tab-pane.diffs` doesn't exist yet (it'll be lazy-loaded) -> Mount the  hover overlay is to `document.body`.
+ * 2. User visits the 'Changes' tab -> Unmount from `document.body`, mount to `div.tab-pane.diffs`.
+ * 3. User visits the 'Overview' tab again -> `div.tab-pane.diffs` is hidden, and as a result so is the hover overlay.
+ * 4. User navigates away from the merge request (soft-reload), `div.tab-pane.diffs` is removed -> Mount to `document.body` again.
  */
 export function observeHoverOverlayMountLocation(
     getMountLocationSelector: NonNullable<CodeHost['getHoverOverlayMountLocation']>,
@@ -772,7 +768,7 @@ export function handleCodeHost({
                     errors.pipe(
                         // Don't swallow non-auth errors
                         tap(error => {
-                            if (!failedWithHTTPStatus(error, 401)) {
+                            if (!isHTTPAuthError(error)) {
                                 throw error
                             }
                         }),

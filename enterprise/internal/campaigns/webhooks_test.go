@@ -99,6 +99,7 @@ func testGitHubWebhook(db *sql.DB, userID int32) func(*testing.T) {
 			t.Fatal(err)
 		}
 
+		// NOTE: Your sample payload should apply to a PR with the number matching below
 		changesets := []*campaigns.Changeset{
 			{
 				RepoID:              githubRepo.ID,
@@ -136,10 +137,7 @@ func testGitHubWebhook(db *sql.DB, userID int32) func(*testing.T) {
 				// Send all events twice to ensure we are idempotent
 				for i := 0; i < 2; i++ {
 					for _, event := range tc.Payloads {
-						u, err := extsvc.WebhookURL(github.ServiceType, extSvc.ID, "https://example.com/")
-						if err != nil {
-							t.Fatal(err)
-						}
+						u := extsvc.WebhookURL(github.ServiceType, extSvc.ID, "https://example.com/")
 
 						req, err := http.NewRequest("POST", u, bytes.NewReader(event.Data))
 						if err != nil {
@@ -300,10 +298,8 @@ func testBitbucketWebhook(db *sql.DB, userID int32) func(*testing.T) {
 				// Send all events twice to ensure we are idempotent
 				for i := 0; i < 2; i++ {
 					for _, event := range tc.Payloads {
-						u, err := extsvc.WebhookURL(bitbucketserver.ServiceType, extSvc.ID, "https://example.com/")
-						if err != nil {
-							t.Fatal(err)
-						}
+						u := extsvc.WebhookURL(bitbucketserver.ServiceType, extSvc.ID, "https://example.com/")
+
 						req, err := http.NewRequest("POST", u, bytes.NewReader(event.Data))
 						if err != nil {
 							t.Fatal(err)

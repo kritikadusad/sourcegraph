@@ -9,7 +9,7 @@ import (
 // PrepDirectories
 func PrepDirectories(bundleDir string) error {
 	for _, dir := range []string{UploadsDir(bundleDir), DBsDir(bundleDir)} {
-		if err := os.MkdirAll(filepath.Join(bundleDir, dir), os.ModePerm); err != nil {
+		if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 			return err
 		}
 	}
@@ -30,6 +30,10 @@ func DBsDir(bundleDir string) string {
 // UploadFilename returns the path fo the upload with the given identifier.
 func UploadFilename(bundleDir string, id int64) string {
 	return filepath.Join(bundleDir, "uploads", fmt.Sprintf("%d.lsif.gz", id))
+}
+
+func UploadPartFilename(bundleDir string, id, index int64) string {
+	return filepath.Join(bundleDir, "uploads", fmt.Sprintf("%d.%d.lsif.gz", id, index))
 }
 
 // DBFilename returns the path fo the database with the given identifier.

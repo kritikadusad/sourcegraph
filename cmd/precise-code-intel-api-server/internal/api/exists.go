@@ -4,7 +4,9 @@ import (
 	"context"
 	"strings"
 
+	"github.com/inconshreveable/log15"
 	"github.com/pkg/errors"
+	"github.com/sourcegraph/sourcegraph/internal/codeintel/bundles/client"
 	"github.com/sourcegraph/sourcegraph/internal/codeintel/db"
 )
 
@@ -27,6 +29,10 @@ func (api *codeIntelAPI) FindClosestDumps(ctx context.Context, repositoryID int,
 	for _, dump := range candidates {
 		exists, err := api.bundleManagerClient.BundleClient(dump.ID).Exists(ctx, strings.TrimPrefix(file, dump.Root))
 		if err != nil {
+			if err == client.ErrNotFound {
+				log15.Warn("Bundle does not exist")
+				return nil, nil
+			}
 			return nil, errors.Wrap(err, "bundleManagerClient.BundleClient")
 		}
 		if !exists {
@@ -50,7 +56,7 @@ func (api *codeIntelAPI) updateCommitsAndVisibility(ctx context.Context, reposit
 		return nil
 	}
 
-	newCommits, err := api.gitserverClient.CommitsNear(api.db, repositoryID, commit)
+	newCommits, err := api.gitserverClient.CommitsNear(ctx, api.db, repositoryID, commit)
 	if err != nil {
 		return errors.Wrap(err, "gitserverClient.CommitsNear")
 	}
@@ -58,7 +64,7 @@ func (api *codeIntelAPI) updateCommitsAndVisibility(ctx context.Context, reposit
 		return errors.Wrap(err, "db.UpdateCommits")
 	}
 
-	tipCommit, err := api.gitserverClient.Head(api.db, repositoryID)
+	tipCommit, err := api.gitserverClient.Head(ctx, api.db, repositoryID)
 	if err != nil {
 		return errors.Wrap(err, "gitserverClient.Head")
 	}

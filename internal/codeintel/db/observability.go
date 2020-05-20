@@ -18,13 +18,16 @@ type ObservedDB struct {
 	getUploadByIDOperation             *observation.Operation
 	getUploadsByRepoOperation          *observation.Operation
 	queueSizeOperation                 *observation.Operation
-	enqueueOperation                   *observation.Operation
+	insertUploadOperation              *observation.Operation
+	addUploadPartOperation             *observation.Operation
+	markQueuedOperation                *observation.Operation
 	markCompleteOperation              *observation.Operation
 	markErroredOperation               *observation.Operation
 	dequeueOperation                   *observation.Operation
 	getStatesOperation                 *observation.Operation
 	deleteUploadByIDOperation          *observation.Operation
 	resetStalledOperation              *observation.Operation
+	getDumpIDsOperation                *observation.Operation
 	getDumpByIDOperation               *observation.Operation
 	findClosestDumpsOperation          *observation.Operation
 	deleteOldestDumpOperation          *observation.Operation
@@ -43,11 +46,10 @@ type ObservedDB struct {
 var _ DB = &ObservedDB{}
 
 // NewObservedDB wraps the given DB with error logging, Prometheus metrics, and tracing.
-func NewObserved(db DB, observationContext *observation.Context, subsystem string) DB {
+func NewObserved(db DB, observationContext *observation.Context) DB {
 	metrics := metrics.NewOperationMetrics(
 		observationContext.Registerer,
-		subsystem,
-		"db",
+		"code_intel_db",
 		metrics.WithLabels("op"),
 		metrics.WithCountHelp("Total number of results returned"),
 	)
@@ -84,9 +86,19 @@ func NewObserved(db DB, observationContext *observation.Context, subsystem strin
 			MetricLabels: []string{"queue_size"},
 			Metrics:      metrics,
 		}),
-		enqueueOperation: observationContext.Operation(observation.Op{
-			Name:         "DB.Enqueue",
-			MetricLabels: []string{"enqueue"},
+		insertUploadOperation: observationContext.Operation(observation.Op{
+			Name:         "DB.InsertUpload",
+			MetricLabels: []string{"insert_upload"},
+			Metrics:      metrics,
+		}),
+		addUploadPartOperation: observationContext.Operation(observation.Op{
+			Name:         "DB.AddUploadPart",
+			MetricLabels: []string{"add_upload_part"},
+			Metrics:      metrics,
+		}),
+		markQueuedOperation: observationContext.Operation(observation.Op{
+			Name:         "DB.MarkQueued",
+			MetricLabels: []string{"mark_queued"},
 			Metrics:      metrics,
 		}),
 		markCompleteOperation: observationContext.Operation(observation.Op{
@@ -117,6 +129,11 @@ func NewObserved(db DB, observationContext *observation.Context, subsystem strin
 		resetStalledOperation: observationContext.Operation(observation.Op{
 			Name:         "DB.ResetStalled",
 			MetricLabels: []string{"reset_stalled"},
+			Metrics:      metrics,
+		}),
+		getDumpIDsOperation: observationContext.Operation(observation.Op{
+			Name:         "DB.GetDumpIDs",
+			MetricLabels: []string{"get_dump_ids"},
 			Metrics:      metrics,
 		}),
 		getDumpByIDOperation: observationContext.Operation(observation.Op{
@@ -189,6 +206,10 @@ func NewObserved(db DB, observationContext *observation.Context, subsystem strin
 
 // wrap the given database with the same observed operations as the receiver database.
 func (db *ObservedDB) wrap(other DB) DB {
+	if other == nil {
+		return nil
+	}
+
 	return &ObservedDB{
 		db:                                 other,
 		savepointOperation:                 db.savepointOperation,
@@ -197,13 +218,16 @@ func (db *ObservedDB) wrap(other DB) DB {
 		getUploadByIDOperation:             db.getUploadByIDOperation,
 		getUploadsByRepoOperation:          db.getUploadsByRepoOperation,
 		queueSizeOperation:                 db.queueSizeOperation,
-		enqueueOperation:                   db.enqueueOperation,
+		insertUploadOperation:              db.insertUploadOperation,
+		addUploadPartOperation:             db.addUploadPartOperation,
+		markQueuedOperation:                db.markQueuedOperation,
 		markCompleteOperation:              db.markCompleteOperation,
 		markErroredOperation:               db.markErroredOperation,
 		dequeueOperation:                   db.dequeueOperation,
 		getStatesOperation:                 db.getStatesOperation,
 		deleteUploadByIDOperation:          db.deleteUploadByIDOperation,
 		resetStalledOperation:              db.resetStalledOperation,
+		getDumpIDsOperation:                db.getDumpIDsOperation,
 		getDumpByIDOperation:               db.getDumpByIDOperation,
 		findClosestDumpsOperation:          db.findClosestDumpsOperation,
 		deleteOldestDumpOperation:          db.deleteOldestDumpOperation,
@@ -231,10 +255,10 @@ func (db *ObservedDB) Transact(ctx context.Context) (DB, error) {
 }
 
 // Savepoint calls into the inner DB and registers the observed results.
-func (db *ObservedDB) Savepoint(ctx context.Context, name string) (err error) {
+func (db *ObservedDB) Savepoint(ctx context.Context) (_ string, err error) {
 	ctx, endObservation := db.savepointOperation.With(ctx, &err, observation.Args{})
 	defer endObservation(1, observation.Args{})
-	return db.db.Savepoint(ctx, name)
+	return db.db.Savepoint(ctx)
 }
 
 // RollbackToSavepoint calls into the inner DB and registers the observed results.
@@ -245,10 +269,17 @@ func (db *ObservedDB) RollbackToSavepoint(ctx context.Context, name string) (err
 }
 
 // Done calls into the inner DB and registers the observed results.
-func (db *ObservedDB) Done(e error) (err error) {
-	_, endObservation := db.doneOperation.With(context.Background(), &err, observation.Args{})
+func (db *ObservedDB) Done(e error) error {
+	var observedErr error = nil
+	_, endObservation := db.doneOperation.With(context.Background(), &observedErr, observation.Args{})
 	defer endObservation(1, observation.Args{})
-	return db.db.Done(e)
+
+	err := db.db.Done(e)
+	if err != e {
+		// Only observe the error if it's a commit/rollback failure
+		observedErr = err
+	}
+	return err
 }
 
 // GetUploadByID calls into the inner DB and registers the observed results.
@@ -272,11 +303,25 @@ func (db *ObservedDB) QueueSize(ctx context.Context) (_ int, err error) {
 	return db.db.QueueSize(ctx)
 }
 
-// Enqueue calls into the inner DB and registers the observed results.
-func (db *ObservedDB) Enqueue(ctx context.Context, commit, root string, repositoryID int, indexerName string) (_ int, err error) {
-	ctx, endObservation := db.enqueueOperation.With(ctx, &err, observation.Args{})
+// InsertUpload calls into the inner DB and registers the observed result.
+func (db *ObservedDB) InsertUpload(ctx context.Context, upload *Upload) (_ int, err error) {
+	ctx, endObservation := db.insertUploadOperation.With(ctx, &err, observation.Args{})
 	defer endObservation(1, observation.Args{})
-	return db.db.Enqueue(ctx, commit, root, repositoryID, indexerName)
+	return db.db.InsertUpload(ctx, upload)
+}
+
+// AddUploadPart calls into the inner DB and registers the observed result.
+func (db *ObservedDB) AddUploadPart(ctx context.Context, uploadID, partIndex int) (err error) {
+	ctx, endObservation := db.addUploadPartOperation.With(ctx, &err, observation.Args{})
+	defer endObservation(1, observation.Args{})
+	return db.db.AddUploadPart(ctx, uploadID, partIndex)
+}
+
+// MarkQueued calls into the inner DB and registers the observed result.
+func (db *ObservedDB) MarkQueued(ctx context.Context, uploadID int) (err error) {
+	ctx, endObservation := db.markQueuedOperation.With(ctx, &err, observation.Args{})
+	defer endObservation(1, observation.Args{})
+	return db.db.MarkQueued(ctx, uploadID)
 }
 
 // MarkComplete calls into the inner DB and registers the observed results.
@@ -294,18 +339,12 @@ func (db *ObservedDB) MarkErrored(ctx context.Context, id int, failureSummary, f
 }
 
 // Dequeue calls into the inner DB and registers the observed results.
-func (db *ObservedDB) Dequeue(ctx context.Context) (_ Upload, _ JobHandle, _ bool, err error) {
+func (db *ObservedDB) Dequeue(ctx context.Context) (_ Upload, _ DB, _ bool, err error) {
 	ctx, endObservation := db.dequeueOperation.With(ctx, &err, observation.Args{})
 	defer endObservation(1, observation.Args{})
 
-	upload, jobHandle, ok, err := db.db.Dequeue(ctx)
-	if err == nil && ok {
-		// TODO(efritz) - find a way to do this without casting
-		if impl, ok := jobHandle.(*jobHandleImpl); ok {
-			impl.db = db.wrap(impl.db)
-		}
-	}
-	return upload, jobHandle, ok, err
+	upload, tx, ok, err := db.db.Dequeue(ctx)
+	return upload, db.wrap(tx), ok, err
 }
 
 // GetStates calls into the inner DB and registers the observed results.
@@ -327,6 +366,13 @@ func (db *ObservedDB) ResetStalled(ctx context.Context, now time.Time) (ids []in
 	ctx, endObservation := db.resetStalledOperation.With(ctx, &err, observation.Args{})
 	defer func() { endObservation(float64(len(ids)), observation.Args{}) }()
 	return db.db.ResetStalled(ctx, now)
+}
+
+// GetDumpIDs calls into the inner DB and registers the observed results.
+func (db *ObservedDB) GetDumpIDs(ctx context.Context) (_ []int, err error) {
+	ctx, endObservation := db.getDumpIDsOperation.With(ctx, &err, observation.Args{})
+	defer endObservation(1, observation.Args{})
+	return db.db.GetDumpIDs(ctx)
 }
 
 // GetDumpByID calls into the inner DB and registers the observed results.

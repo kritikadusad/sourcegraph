@@ -30,6 +30,7 @@ import { eventLogger } from '../../tracking/eventLogger'
 import { shouldDisplayPerformanceWarning } from '../backend'
 import { SearchResultsInfoBar } from './SearchResultsInfoBar'
 import { ErrorAlert } from '../../components/alerts'
+import { VersionContextProps } from '../../../../shared/src/search/util'
 
 const isSearchResults = (val: unknown): val is GQL.ISearchResults =>
     typeof val === 'object' && val !== null && hasProperty('__typename')(val) && val.__typename === 'SearchResults'
@@ -42,7 +43,8 @@ export interface SearchResultsListProps
         ThemeProps,
         PatternTypeProps,
         CaseSensitivityProps,
-        InteractiveSearchProps {
+        InteractiveSearchProps,
+        VersionContextProps {
     location: H.Location
     history: H.History
     authenticatedUser: GQL.IUser | null
@@ -425,6 +427,7 @@ export class SearchResultsList extends React.PureComponent<SearchResultsListProp
                                                                             proposedQuery.query,
                                                                             this.props.patternType,
                                                                             this.props.caseSensitive,
+                                                                            this.props.versionContext,
                                                                             this.props.filtersInQuery
                                                                         )
                                                                     }
@@ -474,7 +477,7 @@ export class SearchResultsList extends React.PureComponent<SearchResultsListProp
                     <div className="pb-4" />
                     {this.props.resultsOrError !== undefined && (
                         <Link className="mb-4 p-3" to="/help/user/search">
-                            Not seeing expected results?
+                            Learn more about our search syntax.
                         </Link>
                     )}
                 </div>

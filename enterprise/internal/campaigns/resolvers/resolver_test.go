@@ -778,6 +778,10 @@ index 6f8b5d9..17400bc 100644
 var wantFileDiffs = apitest.FileDiffs{
 	RawDiff:  testDiff,
 	DiffStat: apitest.DiffStat{Changed: 2},
+	PageInfo: struct {
+		HasNextPage bool
+		EndCursor   string
+	}{},
 	Nodes: []apitest.FileDiff{
 		{
 			OldPath: "README.md",
@@ -925,6 +929,11 @@ func TestCreatePatchSetFromPatchesResolver(t *testing.T) {
 			  }
             }
             previewURL
+            diffStat {
+              added
+              deleted
+              changed
+            }
           }
         }
       }
@@ -944,6 +953,10 @@ func TestCreatePatchSetFromPatchesResolver(t *testing.T) {
 
 		if have, want := result.PreviewURL, "http://example.com/campaigns/new?patchSet=UGF0Y2hTZXQ6MQ%3D%3D"; have != want {
 			t.Fatalf("have PreviewURL %q, want %q", have, want)
+		}
+
+		if have, want := result.DiffStat, (apitest.DiffStat{Changed: 2}); have != want {
+			t.Fatalf("wrong PatchSet.DiffStat.Changed %d, want=%d", have, want)
 		}
 	})
 }
@@ -1003,14 +1016,23 @@ func TestPatchSetResolver(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	var (
+		testDiffStatAdded   int32 = 0
+		testDiffStatDeleted int32 = 0
+		testDiffStatChanged int32 = 2
+	)
+
 	var patches []*campaigns.Patch
 	for _, repo := range rs {
 		patch := &campaigns.Patch{
-			PatchSetID: patchSet.ID,
-			RepoID:     repo.ID,
-			Rev:        testingRev,
-			BaseRef:    "master",
-			Diff:       testDiff,
+			PatchSetID:      patchSet.ID,
+			RepoID:          repo.ID,
+			Rev:             testingRev,
+			BaseRef:         "master",
+			Diff:            testDiff,
+			DiffStatAdded:   &testDiffStatAdded,
+			DiffStatDeleted: &testDiffStatDeleted,
+			DiffStatChanged: &testDiffStatChanged,
 		}
 
 		err := store.CreatePatch(ctx, patch)
@@ -1027,50 +1049,54 @@ func TestPatchSetResolver(t *testing.T) {
 	}
 
 	var response struct{ Node apitest.PatchSet }
-
 	apitest.MustExec(ctx, t, s, nil, &response, fmt.Sprintf(`
-      query {
-        node(id: %q) {
-          ... on PatchSet {
-            id
-            diffStat {
-              added
-              deleted
-              changed
-            }
-            patches(first: %d) {
-              nodes {
-                repository {
-                  name
-                }
-                diff {
-                  fileDiffs {
-                    rawDiff
-                    diffStat {
-                      added
-                      deleted
-                      changed
-                    }
-                    nodes {
-                      oldPath
-                      newPath
-                      hunks {
-                        body
-                        section
-                        newRange { startLine, lines }
-                        oldRange { startLine, lines }
-                        oldNoNewlineAt
-                      }
-                      stat {
+        query {
+          node(id: %q) {
+            ... on PatchSet {
+              id
+              diffStat {
+                added
+                deleted
+                changed
+              }
+              patches(first: %d) {
+                nodes {
+                  repository {
+                    name
+                  }
+                  diff {
+                    fileDiffs(first: %d, after: %s) {
+                      rawDiff
+                      diffStat {
                         added
                         deleted
                         changed
                       }
-                      oldFile {
-                        name
-                        externalURLs {
-                          serviceType
-                          url
+                      pageInfo {
+                        endCursor
+                        hasNextPage
+                      }
+                      nodes {
+                        oldPath
+                        newPath
+                        hunks {
+                          body
+                          section
+                          newRange { startLine, lines }
+                          oldRange { startLine, lines }
+                          oldNoNewlineAt
+                        }
+                        stat {
+                          added
+                          deleted
+                          changed
+                        }
+                        oldFile {
+                          name
+                          externalURLs {
+                            serviceType
+                            url
+                          }
                         }
                       }
                     }
@@ -1080,8 +1106,7 @@ func TestPatchSetResolver(t *testing.T) {
             }
           }
         }
-      }
-	`, marshalPatchSetID(patchSet.ID), len(patches)))
+		`, marshalPatchSetID(patchSet.ID), len(patches), 10000, "null"))
 
 	if have, want := len(response.Node.Patches.Nodes), len(patches); have != want {
 		t.Fatalf("have %d patches, want %d", have, want)
